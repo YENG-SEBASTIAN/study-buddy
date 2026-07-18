@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS Exam Study Buddy - RAG backend
+
+Parameters:
+  KnowledgeBaseId:
+    Type: String
+    Description: ID of your existing Bedrock Knowledge Base
+
+  ModelArn:
+    Type: String
+    Description: Inference profile ARN for Llama 4 Maverick
+
+Resources:
+  StudyBuddyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockRagAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:Retrieve
+                  - bedrock:RetrieveAndGenerate
+                  - bedrock:InvokeModel
+                  - bedrock:GetInferenceProfile
+                Resource: "*"
+
+  StudyBuddyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-ask"
+      Runtime: python3.12
+      Handler: lambda_function.handler
+      Role: !GetAtt StudyBuddyFunctionRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Code: ../backend/
+      Environment:
+        Variables:
+          KNOWLEDGE_BASE_ID: !Ref KnowledgeBaseId
+          MODEL_ARN: !Ref ModelArn
+
+Outputs:
+  LambdaFunctionName:
+    Value: !Ref StudyBuddyFunction
