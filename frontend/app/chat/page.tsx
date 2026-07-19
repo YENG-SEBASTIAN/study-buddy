@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Bot, User } from "lucide-react";
-import type { ChatMessage, AskResponse } from "@/lib/types";
+import ReactMarkdown from "react-markdown";
+import type { ChatMessage, AskResponse, HistoryItem } from "@/lib/types";
 import EmptyState from "@/components/EmptyState";
 import { useAuth } from "@/lib/auth";
 
@@ -16,11 +17,36 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!isSignedIn || !idToken) {
+      setHistoryLoading(false);
+      return;
+    }
+
+    fetch(`${API_URL}/history`, {
+      headers: { Authorization: `Bearer ${idToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("history fetch failed"))))
+      .then((data: { items: HistoryItem[] }) => {
+        const restored = [...data.items].reverse().flatMap((item): ChatMessage[] => [
+          { role: "user", content: item.question },
+          { role: "assistant", content: item.answer, sources: item.sources },
+        ]);
+        setMessages(restored);
+      })
+      .catch(() => {
+        // No history yet, or the fetch failed - start with an empty chat
+        // either way rather than blocking the page.
+      })
+      .finally(() => setHistoryLoading(false));
+  }, [isSignedIn, idToken]);
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -98,7 +124,13 @@ export default function ChatPage() {
       </div>
 
       <main className="flex-1 overflow-y-auto px-6 py-6">
-        {messages.length === 0 && <EmptyState />}
+        {historyLoading ? (
+          <p className="pt-20 text-center text-sm text-slate-400">
+            Loading your past conversations...
+          </p>
+        ) : (
+          messages.length === 0 && <EmptyState />
+        )}
 
         <div className="mx-auto flex max-w-2xl flex-col gap-5">
           {messages.map((message, index) => (
@@ -135,6 +167,25 @@ export default function ChatPage() {
       </form>
     </div>
   );
+}
+
+// S3 URIs come back with percent-encoded spaces (e.g. "LS18%20M12%20...pdf")
+// and the full bucket path. Keep just the parent folder (e.g. "Week6") plus
+// the filename, decoded, so students can tell which week to go reference.
+function sourceLabel(uri: string) {
+  let path = uri;
+  try {
+    path = new URL(uri).pathname;
+  } catch {
+    // Not a full URL (e.g. an s3:// URI) - use it as-is.
+  }
+
+  const relevant = path.split("/").filter(Boolean).slice(-2);
+  try {
+    return relevant.map(decodeURIComponent).join("/");
+  } catch {
+    return relevant.join("/");
+  }
 }
 
 function ChatBubble({ message }: { message: BubbleMessage }) {
@@ -177,7 +228,13 @@ function ChatBubble({ message }: { message: BubbleMessage }) {
         ) : (
           "content" in message && (
             <>
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              {isUser || isError ? (
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              ) : (
+                <div className="prose prose-sm prose-slate dark:prose-invert max-w-none prose-p:my-2 prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 first:prose-headings:mt-0">
+                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                </div>
+              )}
 
               {message.sources && message.sources.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -187,7 +244,7 @@ function ChatBubble({ message }: { message: BubbleMessage }) {
                       title={uri}
                       className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400"
                     >
-                      {uri.split("/").pop()}
+                      {sourceLabel(uri)}
                     </span>
                   ))}
                 </div>

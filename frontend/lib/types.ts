@@ -14,3 +14,13 @@ export type AskResponse = {
   answer: string;
   sources: string[];
 };
+
+// One DynamoDB item from GET /history - see handle_history in
+// backend/lambda_function.py.
+export type HistoryItem = {
+  userId: string;
+  timestamp: string;
+  question: string;
+  answer: string;
+  sources: string[];
+};

@@ -26,6 +26,13 @@ export default function Header() {
           Chat
         </Link>
 
+        <Link
+          href="/architecture"
+          className="rounded-full px-4 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+        >
+          How It&apos;s Built
+        </Link>
+
         {isSignedIn ? (
           <button
             type="button"
