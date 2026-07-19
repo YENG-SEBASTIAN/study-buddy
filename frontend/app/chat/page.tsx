@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
+import { Bot, User } from "lucide-react";
 import type { ChatMessage, AskResponse } from "@/lib/types";
 import EmptyState from "@/components/EmptyState";
 import { useAuth } from "@/lib/auth";
@@ -74,7 +75,7 @@ export default function ChatPage() {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-slate-600 dark:text-slate-400">
-          Sign in to start asking questions.
+          Sign in to start interacting with Akosua.
         </p>
         <button
           type="button"
@@ -91,8 +92,8 @@ export default function ChatPage() {
     <div className="flex flex-1 flex-col bg-gradient-to-b from-amber-50/40 via-slate-50 to-slate-50 dark:from-slate-900 dark:via-slate-950 dark:to-slate-950">
       <div className="border-b border-slate-200/80 bg-white/60 px-6 py-3 text-center backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/60">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Ask an AWS Cloud Practitioner question - answers are grounded in
-          your study notes.
+          Chatting with Akosua, assistant to Madam Akosua - answers are
+          grounded in your cohort&apos;s study notes.
         </p>
       </div>
 
@@ -143,13 +144,13 @@ function ChatBubble({ message }: { message: BubbleMessage }) {
   return (
     <div className={`flex items-end gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
       <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
           isUser
-            ? "bg-gradient-to-br from-amber-400 to-orange-500"
-            : "bg-slate-200 dark:bg-slate-800"
+            ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
+            : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
         }`}
       >
-        {isUser ? "🧑" : "🤖"}
+        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </span>
 
       <div

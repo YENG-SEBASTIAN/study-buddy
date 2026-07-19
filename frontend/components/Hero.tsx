@@ -17,9 +17,9 @@ export default function Hero() {
         </h1>
 
         <p className="mx-auto mt-4 max-w-lg text-slate-600 dark:text-slate-400">
-          Study Buddy is a retrieval-augmented chatbot: every answer is
-          generated from a knowledge base of real study material, not the
-          model&apos;s general training data.
+          Meet Akosua, your study assistant: a retrieval-augmented chatbot
+          whose every answer comes from a knowledge base of real study
+          material, not the model&apos;s general training data.
         </p>
 
         <Link

@@ -43,7 +43,15 @@ clean_backend_deps() {
 trap clean_backend_deps EXIT
 
 echo "Installing Lambda dependencies..."
-pip3 install -r "${BACKEND_DIR}/requirements.txt" -t "${BACKEND_DIR}" --upgrade --quiet
+# --platform/--only-binary force pip to fetch Linux x86_64 wheels (Lambda's
+# runtime) instead of macOS ones, which matters for compiled deps like
+# pydantic_core - a wheel built for this machine won't load in Lambda.
+pip3 install -r "${BACKEND_DIR}/requirements.txt" -t "${BACKEND_DIR}" \
+  --platform manylinux2014_x86_64 \
+  --implementation cp \
+  --python-version 3.12 \
+  --only-binary=:all: \
+  --upgrade --quiet
 
 echo "Packaging..."
 aws cloudformation package \

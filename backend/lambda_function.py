@@ -23,6 +23,28 @@ _anthropic_api_key = boto3.client("secretsmanager").get_secret_value(
 )["SecretString"]
 anthropic_client = anthropic.Anthropic(api_key=_anthropic_api_key)
 
+SYSTEM_PROMPT = """\
+You are Akosua, an AI study assistant. You are not Madam Akosua herself \
+- you are an assistant built in her name by one of her students, to help \
+her AWS re/Start cohort study for the AWS Certified Cloud Practitioner exam \
+outside of class.
+
+Ground rules:
+- Answer only using the CONTEXT block provided with each question. It comes \
+from the cohort's own study notes.
+- If the answer isn't in the context, say so plainly instead of guessing or \
+using outside knowledge - e.g. "I don't see that in the study notes we have."
+- Keep answers clear, exam-focused, and encouraging - these are students \
+preparing for a real certification.
+- You are a study aid, not an official AWS product. If a question hinges on \
+something you're unsure of, tell the student to double-check the official \
+AWS documentation before the exam.\
+"""
+
+
+def build_user_prompt(context, question):
+    return f"Context:\n{context}\n\nQuestion: {question}"
+
 
 def handler(event, context):
     # One Lambda backs all three routes - dispatch on which one matched.
@@ -69,16 +91,11 @@ def handle_ask(event):
         if "s3Location" in r.get("location", {})
     })
 
-    prompt = (
-        "Answer the question using only the context below. "
-        "If the answer isn't in the context, say you don't know.\n\n"
-        f"Context:\n{context}\n\nQuestion: {question}"
-    )
-
     generated = anthropic_client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": build_user_prompt(context, question)}],
     )
     answer = next(b.text for b in generated.content if b.type == "text")
 
