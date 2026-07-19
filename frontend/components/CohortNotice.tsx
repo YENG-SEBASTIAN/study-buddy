@@ -18,7 +18,7 @@ export default function CohortNotice() {
               Cohort April-26-Ext-Akosua
             </span>{" "}
             AWS re/Start class. She only knows what&apos;s in the
-            cohort&apos;s own study notes, and says so honestly when a
+            cohort&apos;s own study notes or slides, and says so honestly when a
             question falls outside them. Not an official AWS product -
             always verify against the AWS documentation before your exam.
           </p>
