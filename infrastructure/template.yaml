@@ -152,6 +152,104 @@ Resources:
     Properties:
       UserPoolId: !Ref StudyBuddyUserPool
       Domain: !Sub "${AWS::StackName}-${AWS::AccountId}"
+      ManagedLoginVersion: 2
+
+  # Full-page branding for the Managed Login UI - dark navy + orange to match
+  # the app's Hero section, with the form centered on the page.
+  StudyBuddyManagedLoginBranding:
+    Type: AWS::Cognito::ManagedLoginBranding
+    DependsOn: StudyBuddyUserPoolDomain
+    Properties:
+      UserPoolId: !Ref StudyBuddyUserPool
+      ClientId: !Ref StudyBuddyUserPoolClient
+      UseCognitoProvidedValues: false
+      Settings:
+        categories:
+          global:
+            colorSchemeMode: DARK
+          form:
+            location:
+              horizontal: CENTER
+              vertical: CENTER
+            displayGraphics: true
+        componentClasses:
+          buttons:
+            borderRadius: 9999
+          input:
+            borderRadius: 8
+            darkMode:
+              defaults:
+                backgroundColor: 1e293bff
+                borderColor: 334155ff
+              placeholderColor: 64748bff
+          inputLabel:
+            darkMode:
+              textColor: f8fafcff
+          inputDescription:
+            darkMode:
+              textColor: cbd5e1ff
+          focusState:
+            darkMode:
+              borderColor: fb923cff
+          link:
+            darkMode:
+              defaults:
+                textColor: fb923cff
+              hover:
+                textColor: fdba74ff
+          divider:
+            darkMode:
+              borderColor: 334155ff
+          statusIndicator:
+            darkMode:
+              error:
+                backgroundColor: 450a0aff
+                borderColor: dc2626ff
+                indicatorColor: f87171ff
+              success:
+                backgroundColor: 052e13ff
+                borderColor: 16a34aff
+                indicatorColor: 4ade80ff
+        components:
+          pageBackground:
+            darkMode:
+              color: 0b1120ff
+          form:
+            borderRadius: 16
+            darkMode:
+              backgroundColor: 1e293bff
+              borderColor: 334155ff
+          pageText:
+            darkMode:
+              headingColor: f8fafcff
+              bodyColor: cbd5e1ff
+              descriptionColor: cbd5e1ff
+          alert:
+            darkMode:
+              error:
+                backgroundColor: 450a0aff
+                borderColor: dc2626ff
+          primaryButton:
+            darkMode:
+              defaults:
+                backgroundColor: f97316ff
+                textColor: ffffffff
+              hover:
+                backgroundColor: fb923cff
+                textColor: ffffffff
+              active:
+                backgroundColor: ea580cff
+                textColor: ffffffff
+          secondaryButton:
+            darkMode:
+              defaults:
+                backgroundColor: 1e293bff
+                borderColor: f97316ff
+                textColor: f97316ff
+              hover:
+                backgroundColor: 334155ff
+                borderColor: fb923cff
+                textColor: fb923cff
 
   # Per-user chat history: userId (partition key) + timestamp (sort key).
   ChatHistoryTable:
