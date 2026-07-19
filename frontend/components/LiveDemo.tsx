@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
+import AkosuaAvatar from "@/components/AkosuaAvatar";
 
 const DEMOS = [
   {
@@ -123,9 +124,7 @@ export default function LiveDemo() {
 
       {(phase === "thinking" || phase === "answering" || phase === "holding") && (
         <div className="flex items-start gap-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white">
-            <Bot className="h-3.5 w-3.5" />
-          </span>
+          <AkosuaAvatar size="sm" />
 
           {phase === "thinking" ? (
             <div className="flex items-center gap-1 py-1.5">

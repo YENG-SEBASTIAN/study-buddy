@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import AkosuaAvatar from "@/components/AkosuaAvatar";
 import { useAuth } from "@/lib/auth";
 
 export default function Header() {
@@ -12,9 +13,7 @@ export default function Header() {
         href="/"
         className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-50"
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 text-sm font-bold text-white">
-          S
-        </span>
+        <AkosuaAvatar size="md" />
         Study Buddy
       </Link>
 

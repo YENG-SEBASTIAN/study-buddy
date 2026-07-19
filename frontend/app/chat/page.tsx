@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
-import { ArrowRight, Bot, LogIn, MessageCircleQuestion, Sparkles, User } from "lucide-react";
+import { ArrowRight, LogIn, MessageCircleQuestion, Sparkles, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage, AskResponse, HistoryItem } from "@/lib/types";
+import AkosuaAvatar from "@/components/AkosuaAvatar";
 import EmptyState from "@/components/EmptyState";
 import Spinner from "@/components/Spinner";
 import { useAuth } from "@/lib/auth";
@@ -158,9 +159,7 @@ export default function ChatPage() {
           style={{ animationDelay: "0ms" }}
         >
           <span className="absolute inset-0 animate-ping rounded-full bg-amber-400/30 dark:bg-amber-500/20" />
-          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-lg shadow-amber-500/30">
-            <Bot className="h-8 w-8" />
-          </span>
+          <AkosuaAvatar size="lg" className="shadow-lg shadow-amber-500/30" />
           <Sparkles className="absolute -right-1 -top-1 h-6 w-6 text-amber-500 dark:text-amber-400" />
         </div>
 
@@ -215,7 +214,7 @@ export default function ChatPage() {
       <div className="border-b border-slate-200/80 bg-white/60 px-6 py-3 text-center backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/60">
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Chatting with Akosua, assistant to Madam Akosua - answers are
-          grounded in your cohort&apos;s study notes.
+          grounded in your cohort&apos;s study notes and slides.
         </p>
       </div>
 
@@ -305,15 +304,13 @@ function ChatBubble({
 
   return (
     <div className={`flex items-end gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
-      <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-          isUser
-            ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
-            : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-        }`}
-      >
-        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-      </span>
+      {isUser ? (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white">
+          <User className="h-4 w-4" />
+        </span>
+      ) : (
+        <AkosuaAvatar size="md" />
+      )}
 
       <div
         className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
