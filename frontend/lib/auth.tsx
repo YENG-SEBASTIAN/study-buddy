@@ -10,7 +10,10 @@ const USER_POOL_ID = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID;
 const oidcConfig = {
   authority: `https://cognito-idp.us-east-1.amazonaws.com/${USER_POOL_ID}`,
   client_id: CLIENT_ID,
-  redirect_uri: "http://localhost:3000/auth/callback",
+  // Computed per-origin rather than hardcoded, so this works on both
+  // localhost and the deployed site - each origin must also be listed in
+  // StudyBuddyUserPoolClient's CallbackURLs (infrastructure/template.yaml).
+  redirect_uri: typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : "",
   response_type: "code",
 
   scope: "openid email",

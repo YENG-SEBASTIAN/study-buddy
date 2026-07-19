@@ -137,8 +137,10 @@ Resources:
         - COGNITO
       CallbackURLs:
         - http://localhost:3000/auth/callback
+        - https://akosua-ai.vercel.app/auth/callback
       LogoutURLs:
         - http://localhost:3000/
+        - https://akosua-ai.vercel.app/
       ExplicitAuthFlows:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
@@ -185,6 +187,7 @@ Resources:
         CorsRules:
           - AllowedOrigins:
               - http://localhost:3000
+              - https://akosua-ai.vercel.app
             AllowedMethods:
               - PUT
             AllowedHeaders:
@@ -199,6 +202,7 @@ Resources:
       CorsConfiguration:
         AllowOrigins:
           - http://localhost:3000
+          - https://akosua-ai.vercel.app
         AllowMethods:
           - GET
           - POST
