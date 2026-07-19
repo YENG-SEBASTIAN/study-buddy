@@ -1,3 +1,4 @@
+import Image from "next/image";
 import {
   Server,
   ShieldCheck,
@@ -141,6 +142,10 @@ const categories: Category[] = [
 ];
 
 export default function ArchitecturePage() {
+  // Comes in after every category card has started its own entrance
+  // animation, so the diagram caps off the cascade instead of racing it.
+  const diagramDelay = categories.length * 80 + 160;
+
   return (
     <main className="flex-1 bg-white px-6 py-16 dark:bg-slate-950">
       <div className="mx-auto max-w-3xl text-center">
@@ -218,6 +223,35 @@ export default function ArchitecturePage() {
             </div>
           </section>
         ))}
+      </div>
+
+      <div className="mx-auto mt-20 max-w-5xl">
+        <h2
+          className="animate-fade-in-up text-sm font-bold tracking-wide text-amber-600 uppercase dark:text-amber-400"
+          style={{ animationDelay: `${diagramDelay}ms` }}
+        >
+          The Full Picture
+        </h2>
+        <p
+          className="animate-fade-in-up mt-2 text-sm text-slate-600 dark:text-slate-400"
+          style={{ animationDelay: `${diagramDelay + 40}ms` }}
+        >
+          How a question travels from your browser to Akosua and back.
+        </p>
+
+        <div
+          className="animate-fade-in-up mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          style={{ animationDelay: `${diagramDelay + 80}ms` }}
+        >
+          <Image
+            src="/architecture.png"
+            alt="Diagram of the Study Buddy request flow: the student's browser signs in through Cognito, sends questions through API Gateway to a Lambda function, which retrieves study notes from a Bedrock Knowledge Base, generates an answer with Claude, and saves the conversation to DynamoDB."
+            width={1693}
+            height={929}
+            className="h-auto w-full rounded-xl"
+            sizes="(min-width: 1024px) 960px, 100vw"
+          />
+        </div>
       </div>
     </main>
   );
