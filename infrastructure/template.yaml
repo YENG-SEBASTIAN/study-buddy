@@ -1,6 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: AWS Exam Study Buddy - RAG backend
 
+# ---------------------------------------------------------------------------
+# Parameters let you plug in values at deploy time instead of hardcoding them.
+# We pass these in from deploy.sh with --parameter-overrides, and CloudFormation
+# forwards them to the Lambda as environment variables (see the Environment
+# block on StudyBuddyFunction below). This is how the same template can point
+# at different Knowledge Bases or models without editing any code.
+# ---------------------------------------------------------------------------
 Parameters:
   KnowledgeBaseId:
     Type: String
@@ -11,6 +18,15 @@ Parameters:
     Description: Inference profile ARN for Llama 4 Maverick
 
 Resources:
+  # -------------------------------------------------------------------------
+  # IAM Role: this is the identity the Lambda function "wears" when it runs.
+  # It has two parts:
+  #   1. AssumeRolePolicyDocument (the "trust policy") - says WHO is allowed
+  #      to use this role. Here, only the Lambda service itself can assume it.
+  #   2. Policies (the "permissions policy") - says WHAT the role is allowed
+  #      to do once assumed. Without this, the Lambda would fail with
+  #      AccessDenied the moment it tried to call Bedrock.
+  # -------------------------------------------------------------------------
   StudyBuddyFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -22,6 +38,9 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
+        # AWS-managed policy that grants permission to write logs to
+        # CloudWatch (CreateLogGroup/Stream, PutLogEvents). Every Lambda
+        # should have this so you can debug it via CloudWatch Logs.
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: BedrockRagAccess
@@ -30,12 +49,27 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  # Retrieve/RetrieveAndGenerate: query the Knowledge Base
+                  # and (in the latter case) also ask the model to compose
+                  # an answer from what was retrieved.
                   - bedrock:Retrieve
                   - bedrock:RetrieveAndGenerate
+                  # InvokeModel: needed because RetrieveAndGenerate calls the
+                  # model on your behalf under the hood.
                   - bedrock:InvokeModel
+                  # GetInferenceProfile: required because ModelArn points at a
+                  # cross-region inference profile (the "us.meta.llama4-..."
+                  # ARN) rather than a single-region model directly.
                   - bedrock:GetInferenceProfile
                 Resource: "*"
 
+  # -------------------------------------------------------------------------
+  # The Lambda function itself. `Code: ../backend/` tells the CloudFormation
+  # package step (run from infrastructure/deploy.sh) to zip up that folder
+  # and upload it to S3 - CloudFormation then rewrites this into an S3
+  # location automatically. That's the difference between the source
+  # template.yaml (what you edit) and packaged.yaml (what actually deploys).
+  # -------------------------------------------------------------------------
   StudyBuddyFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -48,9 +82,99 @@ Resources:
       Code: ../backend/
       Environment:
         Variables:
+          # !Ref on a Parameter returns the value the caller supplied for it.
+          # These become os.environ["KNOWLEDGE_BASE_ID"] etc. inside the
+          # Lambda - see backend/lambda_function.py.
           KNOWLEDGE_BASE_ID: !Ref KnowledgeBaseId
           MODEL_ARN: !Ref ModelArn
 
+  # -------------------------------------------------------------------------
+  # API Gateway HTTP API (the "v2" API type - cheaper and simpler than the
+  # older REST API type, which is why the spec calls for it). This resource
+  # is the API itself: a container for routes, plus its CORS settings.
+  #
+  # CORS matters because the browser (frontend running on localhost:3000)
+  # and the API (running on amazonaws.com) are different origins. Without
+  # CORS headers, the browser's fetch() call would be blocked even though
+  # the request would otherwise succeed.
+  # -------------------------------------------------------------------------
+  StudyBuddyHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - http://localhost:3000
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+
+  # -------------------------------------------------------------------------
+  # Integration: tells API Gateway HOW to talk to the backend. AWS_PROXY
+  # means "forward the raw HTTP request to the Lambda, and send the Lambda's
+  # return value straight back as the HTTP response" - that's why
+  # lambda_function.py builds its own {statusCode, headers, body} dict
+  # instead of just returning plain data.
+  # -------------------------------------------------------------------------
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref StudyBuddyHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt StudyBuddyFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  # -------------------------------------------------------------------------
+  # Route: maps a specific "METHOD /path" pattern to the integration above.
+  # This is what makes POST /ask a valid endpoint on this API.
+  # -------------------------------------------------------------------------
+  AskRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref StudyBuddyHttpApi
+      RouteKey: "POST /ask"
+      Target: !Sub "integrations/${LambdaIntegration}"
+
+  # -------------------------------------------------------------------------
+  # Stage: a named, deployed snapshot of the API's routes (think of it like
+  # an environment - $default is a special stage name that serves requests
+  # straight from the API's base URL with no stage segment in the path,
+  # e.g. https://abc123.execute-api.us-east-1.amazonaws.com/ask instead of
+  # .../prod/ask). AutoDeploy: true means every route/integration change is
+  # published automatically, so we don't need a separate deployment step.
+  # -------------------------------------------------------------------------
+  StudyBuddyStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref StudyBuddyHttpApi
+      StageName: "$default"
+      AutoDeploy: true
+
+  # -------------------------------------------------------------------------
+  # Resource-based permission: even though the Lambda's IAM role controls
+  # what the Lambda can DO, something separate has to grant API Gateway
+  # permission to INVOKE the Lambda in the first place. This is that grant.
+  # The SourceArn restricts it so only THIS specific API (any method/stage/
+  # path on it, via the /*/* wildcard) can invoke the function - not just
+  # any API Gateway anywhere in your account.
+  # -------------------------------------------------------------------------
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref StudyBuddyFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${StudyBuddyHttpApi}/*/*"
+
 Outputs:
+  # The full URL the frontend's NEXT_PUBLIC_API_URL should point at.
+  ApiEndpoint:
+    Description: Invoke URL for POST /ask
+    Value: !Sub "https://${StudyBuddyHttpApi}.execute-api.${AWS::Region}.amazonaws.com/ask"
+
   LambdaFunctionName:
+    Description: Name of the deployed Lambda function
     Value: !Ref StudyBuddyFunction

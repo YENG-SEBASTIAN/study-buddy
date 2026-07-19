@@ -1,0 +1,18 @@
+# Node.js / Next.js (frontend/) - installed packages and build output are
+# regenerated from package.json, so they don't belong in git.
+node_modules/
+.next/
+
+# Local environment variables (frontend/.env.local) - holds
+# NEXT_PUBLIC_API_URL, which is specific to your deployed stack. Anyone else
+# running this project sets their own.
+.env.local
+
+# Python (backend/) - bytecode cache, rebuilt automatically on run.
+__pycache__/
+
+# CloudFormation packaged output (infrastructure/packaged.yaml) - generated
+# by `aws cloudformation package` in deploy.sh every time you deploy. The
+# source of truth is template.yaml; packaged.yaml is a build artifact.
+infrastructure/packaged.yaml
+.DS_Store
