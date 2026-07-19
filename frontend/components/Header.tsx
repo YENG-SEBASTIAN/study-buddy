@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 
 export default function Header() {
-  const { isSignedIn, signIn } = useAuth();
+  const { isSignedIn, user, signIn, signOut } = useAuth();
 
   return (
     <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/80 px-6 backdrop-blur dark:border-slate-800/80 dark:bg-slate-950/80">
@@ -26,14 +26,24 @@ export default function Header() {
           Chat
         </Link>
 
-        <button
-          type="button"
-          onClick={signIn}
-          title="Sign-in coming soon"
-          className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition hover:from-amber-400 hover:to-orange-400"
-        >
-          {isSignedIn ? "Account" : "Sign In"}
-        </button>
+        {isSignedIn ? (
+          <button
+            type="button"
+            onClick={signOut}
+            title={user?.email}
+            className="rounded-full border border-slate-200 px-4 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            Sign Out
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={signIn}
+            className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-1.5 text-sm font-medium text-white shadow-sm transition hover:from-amber-400 hover:to-orange-400"
+          >
+            Sign In
+          </button>
+        )}
       </nav>
     </header>
   );

@@ -1,13 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: AWS Exam Study Buddy - RAG backend
 
-# ---------------------------------------------------------------------------
-# Parameters let you plug in values at deploy time instead of hardcoding them.
-# We pass these in from deploy.sh with --parameter-overrides, and CloudFormation
-# forwards them to the Lambda as environment variables (see the Environment
-# block on StudyBuddyFunction below). This is how the same template can point
-# at different Knowledge Bases or models without editing any code.
-# ---------------------------------------------------------------------------
 Parameters:
   KnowledgeBaseId:
     Type: String
@@ -18,15 +11,7 @@ Parameters:
     Description: Inference profile ARN for Llama 4 Maverick
 
 Resources:
-  # -------------------------------------------------------------------------
-  # IAM Role: this is the identity the Lambda function "wears" when it runs.
-  # It has two parts:
-  #   1. AssumeRolePolicyDocument (the "trust policy") - says WHO is allowed
-  #      to use this role. Here, only the Lambda service itself can assume it.
-  #   2. Policies (the "permissions policy") - says WHAT the role is allowed
-  #      to do once assumed. Without this, the Lambda would fail with
-  #      AccessDenied the moment it tried to call Bedrock.
-  # -------------------------------------------------------------------------
+  # Lambda execution role: CloudWatch logs + Bedrock/DynamoDB/S3 access.
   StudyBuddyFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -38,9 +23,6 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        # AWS-managed policy that grants permission to write logs to
-        # CloudWatch (CreateLogGroup/Stream, PutLogEvents). Every Lambda
-        # should have this so you can debug it via CloudWatch Logs.
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: BedrockRagAccess
@@ -49,27 +31,22 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  # Retrieve/RetrieveAndGenerate: query the Knowledge Base
-                  # and (in the latter case) also ask the model to compose
-                  # an answer from what was retrieved.
                   - bedrock:Retrieve
                   - bedrock:RetrieveAndGenerate
-                  # InvokeModel: needed because RetrieveAndGenerate calls the
-                  # model on your behalf under the hood.
                   - bedrock:InvokeModel
-                  # GetInferenceProfile: required because ModelArn points at a
-                  # cross-region inference profile (the "us.meta.llama4-..."
-                  # ARN) rather than a single-region model directly.
                   - bedrock:GetInferenceProfile
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt ChatHistoryTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "${StudyNotesBucket.Arn}/*"
 
-  # -------------------------------------------------------------------------
-  # The Lambda function itself. `Code: ../backend/` tells the CloudFormation
-  # package step (run from infrastructure/deploy.sh) to zip up that folder
-  # and upload it to S3 - CloudFormation then rewrites this into an S3
-  # location automatically. That's the difference between the source
-  # template.yaml (what you edit) and packaged.yaml (what actually deploys).
-  # -------------------------------------------------------------------------
+  # Single Lambda backing every route (POST /ask, GET /history, POST /upload).
   StudyBuddyFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -82,22 +59,98 @@ Resources:
       Code: ../backend/
       Environment:
         Variables:
-          # !Ref on a Parameter returns the value the caller supplied for it.
-          # These become os.environ["KNOWLEDGE_BASE_ID"] etc. inside the
-          # Lambda - see backend/lambda_function.py.
           KNOWLEDGE_BASE_ID: !Ref KnowledgeBaseId
           MODEL_ARN: !Ref ModelArn
+          CHAT_HISTORY_TABLE: !Ref ChatHistoryTable
+          STUDY_NOTES_BUCKET: !Ref StudyNotesBucket
 
-  # -------------------------------------------------------------------------
-  # API Gateway HTTP API (the "v2" API type - cheaper and simpler than the
-  # older REST API type, which is why the spec calls for it). This resource
-  # is the API itself: a container for routes, plus its CORS settings.
-  #
-  # CORS matters because the browser (frontend running on localhost:3000)
-  # and the API (running on amazonaws.com) are different origins. Without
-  # CORS headers, the browser's fetch() call would be blocked even though
-  # the request would otherwise succeed.
-  # -------------------------------------------------------------------------
+  # User directory - sign-in happens via the Hosted UI domain below.
+  StudyBuddyUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-users"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  # Public SPA client - no secret, PKCE-secured Authorization Code grant.
+  StudyBuddyUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref StudyBuddyUserPool
+      ClientName: !Sub "${AWS::StackName}-web"
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - openid
+        - email
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:3000/auth/callback
+      LogoutURLs:
+        - http://localhost:3000/
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+
+  # Hosted UI login page: https://<prefix>.auth.<region>.amazoncognito.com
+  StudyBuddyUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref StudyBuddyUserPool
+      Domain: !Sub "${AWS::StackName}-${AWS::AccountId}"
+
+  # Per-user chat history: userId (partition key) + timestamp (sort key).
+  ChatHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-chat-history"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+  # Study-note uploads via presigned URL (see handle_upload in lambda_function.py).
+  StudyNotesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - http://localhost:3000
+            AllowedMethods:
+              - PUT
+            AllowedHeaders:
+              - "*"
+
+  # HTTP API (v2). CORS allows the Next.js dev origin, incl. Authorization header.
   StudyBuddyHttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -107,18 +160,15 @@ Resources:
         AllowOrigins:
           - http://localhost:3000
         AllowMethods:
+          - GET
           - POST
           - OPTIONS
         AllowHeaders:
           - Content-Type
+          - Authorization
 
-  # -------------------------------------------------------------------------
-  # Integration: tells API Gateway HOW to talk to the backend. AWS_PROXY
-  # means "forward the raw HTTP request to the Lambda, and send the Lambda's
-  # return value straight back as the HTTP response" - that's why
-  # lambda_function.py builds its own {statusCode, headers, body} dict
-  # instead of just returning plain data.
-  # -------------------------------------------------------------------------
+  # AWS_PROXY integration shared by all three routes - one Lambda, dispatched
+  # internally on event["routeKey"].
   LambdaIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -127,25 +177,48 @@ Resources:
       IntegrationUri: !GetAtt StudyBuddyFunction.Arn
       PayloadFormatVersion: "2.0"
 
-  # -------------------------------------------------------------------------
-  # Route: maps a specific "METHOD /path" pattern to the integration above.
-  # This is what makes POST /ask a valid endpoint on this API.
-  # -------------------------------------------------------------------------
+  # Validates the Cognito JWT on every protected route before Lambda runs.
+  CognitoAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref StudyBuddyHttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      Name: CognitoAuthorizer
+      JwtConfiguration:
+        Audience:
+          - !Ref StudyBuddyUserPoolClient
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${StudyBuddyUserPool}"
+
   AskRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref StudyBuddyHttpApi
       RouteKey: "POST /ask"
       Target: !Sub "integrations/${LambdaIntegration}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
 
-  # -------------------------------------------------------------------------
-  # Stage: a named, deployed snapshot of the API's routes (think of it like
-  # an environment - $default is a special stage name that serves requests
-  # straight from the API's base URL with no stage segment in the path,
-  # e.g. https://abc123.execute-api.us-east-1.amazonaws.com/ask instead of
-  # .../prod/ask). AutoDeploy: true means every route/integration change is
-  # published automatically, so we don't need a separate deployment step.
-  # -------------------------------------------------------------------------
+  HistoryRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref StudyBuddyHttpApi
+      RouteKey: "GET /history"
+      Target: !Sub "integrations/${LambdaIntegration}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+  UploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref StudyBuddyHttpApi
+      RouteKey: "POST /upload"
+      Target: !Sub "integrations/${LambdaIntegration}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+  # $default stage auto-deploys route changes - no separate deploy step needed.
   StudyBuddyStage:
     Type: AWS::ApiGatewayV2::Stage
     Properties:
@@ -153,14 +226,7 @@ Resources:
       StageName: "$default"
       AutoDeploy: true
 
-  # -------------------------------------------------------------------------
-  # Resource-based permission: even though the Lambda's IAM role controls
-  # what the Lambda can DO, something separate has to grant API Gateway
-  # permission to INVOKE the Lambda in the first place. This is that grant.
-  # The SourceArn restricts it so only THIS specific API (any method/stage/
-  # path on it, via the /*/* wildcard) can invoke the function - not just
-  # any API Gateway anywhere in your account.
-  # -------------------------------------------------------------------------
+  # Grants API Gateway permission to invoke the Lambda.
   ApiGatewayInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -170,11 +236,30 @@ Resources:
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${StudyBuddyHttpApi}/*/*"
 
 Outputs:
-  # The full URL the frontend's NEXT_PUBLIC_API_URL should point at.
   ApiEndpoint:
-    Description: Invoke URL for POST /ask
-    Value: !Sub "https://${StudyBuddyHttpApi}.execute-api.${AWS::Region}.amazonaws.com/ask"
+    Description: Base invoke URL (append /ask, /history, /upload)
+    Value: !Sub "https://${StudyBuddyHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
 
   LambdaFunctionName:
     Description: Name of the deployed Lambda function
     Value: !Ref StudyBuddyFunction
+
+  CognitoUserPoolId:
+    Description: User Pool ID
+    Value: !Ref StudyBuddyUserPool
+
+  CognitoUserPoolClientId:
+    Description: For NEXT_PUBLIC_COGNITO_CLIENT_ID
+    Value: !Ref StudyBuddyUserPoolClient
+
+  CognitoHostedUIDomain:
+    Description: For NEXT_PUBLIC_COGNITO_DOMAIN
+    Value: !Sub "https://${StudyBuddyUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+
+  ChatHistoryTableName:
+    Description: DynamoDB table storing per-user chat history
+    Value: !Ref ChatHistoryTable
+
+  StudyNotesBucketName:
+    Description: S3 bucket for uploaded study notes
+    Value: !Ref StudyNotesBucket

@@ -3,12 +3,15 @@
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import type { ChatMessage, AskResponse } from "@/lib/types";
 import EmptyState from "@/components/EmptyState";
+import { useAuth } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 type BubbleMessage = ChatMessage | { role: "assistant"; pending: true };
 
 export default function ChatPage() {
+  const { isSignedIn, idToken, loading: authLoading, signIn } = useAuth();
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,9 +32,12 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(API_URL as string, {
+      const res = await fetch(`${API_URL}/ask`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({ question }),
       });
 
@@ -54,6 +60,31 @@ export default function ChatPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (authLoading) {
+    return (
+      <main className="flex flex-1 items-center justify-center">
+        <p className="text-sm text-slate-400">Loading...</p>
+      </main>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-slate-600 dark:text-slate-400">
+          Sign in to start asking questions.
+        </p>
+        <button
+          type="button"
+          onClick={signIn}
+          className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-amber-400 hover:to-orange-400"
+        >
+          Sign In
+        </button>
+      </main>
+    );
   }
 
   return (
