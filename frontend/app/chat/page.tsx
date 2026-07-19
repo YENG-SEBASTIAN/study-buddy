@@ -5,6 +5,7 @@ import { Bot, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage, AskResponse, HistoryItem } from "@/lib/types";
 import EmptyState from "@/components/EmptyState";
+import Spinner from "@/components/Spinner";
 import { useAuth } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -92,7 +93,7 @@ export default function ChatPage() {
   if (authLoading) {
     return (
       <main className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-slate-400">Loading...</p>
+        <Spinner size="lg" />
       </main>
     );
   }
@@ -125,9 +126,12 @@ export default function ChatPage() {
 
       <main className="flex-1 overflow-y-auto px-6 py-6">
         {historyLoading ? (
-          <p className="pt-20 text-center text-sm text-slate-400">
-            Loading your past conversations...
-          </p>
+          <div className="flex flex-col items-center gap-3 pt-20">
+            <Spinner />
+            <p className="text-sm text-slate-400">
+              Loading your past conversations...
+            </p>
+          </div>
         ) : (
           messages.length === 0 && <EmptyState />
         )}
