@@ -11,6 +11,15 @@ node_modules/
 # Python (backend/) - bytecode cache, rebuilt automatically on run.
 __pycache__/
 
+# Everything else in backend/ - the local dev venv, and the pip dependencies
+# deploy.sh installs before packaging (anthropic/, httpx/, ...) - both are
+# regenerated from requirements.txt. Allowlist by name, not `*.py`, since
+# some dependencies (typing_extensions) ship as a single top-level .py file.
+backend/*
+!backend/lambda_function.py
+!backend/pre_signup.py
+!backend/requirements.txt
+
 # CloudFormation packaged output (infrastructure/packaged.yaml) - generated
 # by `aws cloudformation package` in deploy.sh every time you deploy. The
 # source of truth is template.yaml; packaged.yaml is a build artifact.

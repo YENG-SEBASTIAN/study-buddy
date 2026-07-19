@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Packages and deploys the study-buddy CloudFormation stack.
-# Usage: ./deploy.sh <knowledge-base-id> <s3-bucket-for-packaging> [model-arn]
+# Usage: ./deploy.sh <knowledge-base-id> <s3-bucket-for-packaging>
 # Knowledge Base ID: X7WMDPOCN5
 # Packaging bucket: study-buddy-deploy-766696030279
 
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "Usage: $0 <knowledge-base-id> <s3-bucket-for-packaging> [model-arn]"
+  echo "Usage: $0 <knowledge-base-id> <s3-bucket-for-packaging>"
   exit 1
 fi
 
@@ -19,18 +19,31 @@ STACK_NAME="study-buddy"
 TEMPLATE_FILE="template.yaml"
 PACKAGED_FILE="packaged.yaml"
 
-if [[ $# -ge 3 ]]; then
-  MODEL_ARN="$3"
-else
-  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-  MODEL_ARN="arn:aws:bedrock:${REGION}:${ACCOUNT_ID}:inference-profile/us.meta.llama4-maverick-17b-instruct-v1:0"
-fi
-
 echo "Knowledge Base ID: ${KNOWLEDGE_BASE_ID}"
-echo "Model ARN:         ${MODEL_ARN}"
 echo "Packaging bucket:  ${S3_BUCKET}"
 echo "Stack name:        ${STACK_NAME}"
 echo
+
+BACKEND_DIR="../backend"
+BACKEND_SOURCE_FILES=(lambda_function.py pre_signup.py requirements.txt)
+
+# Runs on exit (success, failure, or Ctrl-C) so backend/ never stays dirty -
+# pip installs its deps flat alongside the source files (required for a
+# Lambda zip with no layer), then this strips everything back off once
+# they're packaged.
+clean_backend_deps() {
+  for entry in "${BACKEND_DIR}"/*; do
+    name="$(basename "$entry")"
+    for keep in "${BACKEND_SOURCE_FILES[@]}"; do
+      [[ "$name" == "$keep" ]] && continue 2
+    done
+    rm -rf "$entry"
+  done
+}
+trap clean_backend_deps EXIT
+
+echo "Installing Lambda dependencies..."
+pip3 install -r "${BACKEND_DIR}/requirements.txt" -t "${BACKEND_DIR}" --upgrade --quiet
 
 echo "Packaging..."
 aws cloudformation package \
@@ -46,8 +59,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM \
   --region "${REGION}" \
   --parameter-overrides \
-    KnowledgeBaseId="${KNOWLEDGE_BASE_ID}" \
-    ModelArn="${MODEL_ARN}"
+    KnowledgeBaseId="${KNOWLEDGE_BASE_ID}"
 
 echo
 echo "Stack outputs:"

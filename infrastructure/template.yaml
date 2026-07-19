@@ -6,9 +6,15 @@ Parameters:
     Type: String
     Description: ID of your existing Bedrock Knowledge Base
 
-  ModelArn:
+  AnthropicModel:
     Type: String
-    Description: Inference profile ARN for Llama 4 Maverick
+    Description: Claude model ID used for generation
+    Default: claude-haiku-4-5-20251001
+
+  AnthropicSecretName:
+    Type: String
+    Description: Secrets Manager secret name holding the Anthropic API key
+    Default: study-buddy/anthropic-api-key
 
 Resources:
   # Lambda execution role: CloudWatch logs + Bedrock/DynamoDB/S3 access.
@@ -32,9 +38,6 @@ Resources:
               - Effect: Allow
                 Action:
                   - bedrock:Retrieve
-                  - bedrock:RetrieveAndGenerate
-                  - bedrock:InvokeModel
-                  - bedrock:GetInferenceProfile
                 Resource: "*"
               - Effect: Allow
                 Action:
@@ -45,6 +48,10 @@ Resources:
                 Action:
                   - s3:PutObject
                 Resource: !Sub "${StudyNotesBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicSecretName}-*"
 
   # Single Lambda backing every route (POST /ask, GET /history, POST /upload).
   StudyBuddyFunction:
@@ -60,19 +67,52 @@ Resources:
       Environment:
         Variables:
           KNOWLEDGE_BASE_ID: !Ref KnowledgeBaseId
-          MODEL_ARN: !Ref ModelArn
+          ANTHROPIC_MODEL: !Ref AnthropicModel
+          ANTHROPIC_SECRET_NAME: !Ref AnthropicSecretName
           CHAT_HISTORY_TABLE: !Ref ChatHistoryTable
           STUDY_NOTES_BUCKET: !Ref StudyNotesBucket
+
+  # Auto-confirms every sign-up so no verification code is required.
+  PreSignUpTriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  PreSignUpTriggerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-pre-signup"
+      Runtime: python3.12
+      Handler: pre_signup.handler
+      Role: !GetAtt PreSignUpTriggerRole.Arn
+      Timeout: 10
+      Code: ../backend/
+
+  PreSignUpInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PreSignUpTriggerFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt StudyBuddyUserPool.Arn
 
   # User directory - sign-in happens via the Hosted UI domain below.
   StudyBuddyUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
       UserPoolName: !Sub "${AWS::StackName}-users"
-      AutoVerifiedAttributes:
-        - email
       UsernameAttributes:
         - email
+      LambdaConfig:
+        PreSignUp: !GetAtt PreSignUpTriggerFunction.Arn
       Policies:
         PasswordPolicy:
           MinimumLength: 8

@@ -3,17 +3,25 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+import anthropic
 import boto3
 from boto3.dynamodb.conditions import Key
 
 KB_ID = os.environ["KNOWLEDGE_BASE_ID"]
-MODEL_ARN = os.environ["MODEL_ARN"]
+ANTHROPIC_MODEL = os.environ["ANTHROPIC_MODEL"]
+ANTHROPIC_SECRET_NAME = os.environ["ANTHROPIC_SECRET_NAME"]
 CHAT_HISTORY_TABLE = os.environ["CHAT_HISTORY_TABLE"]
 STUDY_NOTES_BUCKET = os.environ["STUDY_NOTES_BUCKET"]
 
-bedrock = boto3.client("bedrock-agent-runtime")
+bedrock_agent = boto3.client("bedrock-agent-runtime")  # retrieval (Retrieve)
 history_table = boto3.resource("dynamodb").Table(CHAT_HISTORY_TABLE)
 s3 = boto3.client("s3")
+
+# Fetched once per cold start, not per invocation.
+_anthropic_api_key = boto3.client("secretsmanager").get_secret_value(
+    SecretId=ANTHROPIC_SECRET_NAME
+)["SecretString"]
+anthropic_client = anthropic.Anthropic(api_key=_anthropic_api_key)
 
 
 def handler(event, context):
@@ -43,25 +51,36 @@ def handle_ask(event):
     if not question:
         return respond(400, {"error": "Missing 'question' in request body."})
 
-    resp = bedrock.retrieve_and_generate(
-        input={"text": question},
-        retrieveAndGenerateConfiguration={
-            "type": "KNOWLEDGE_BASE",
-            "knowledgeBaseConfiguration": {
-                "knowledgeBaseId": KB_ID,
-                "modelArn": MODEL_ARN,
-            },
-        },
+    # Retrieval stays on Bedrock (the Knowledge Base lives there); generation
+    # uses the Claude API instead, since Bedrock model invocation is blocked
+    # for this account.
+    retrieved = bedrock_agent.retrieve(
+        knowledgeBaseId=KB_ID,
+        retrievalQuery={"text": question},
+    )
+    results = retrieved.get("retrievalResults", [])
+
+    context = "\n\n".join(
+        r["content"]["text"] for r in results if r.get("content", {}).get("text")
+    )
+    sources = sorted({
+        r["location"]["s3Location"]["uri"]
+        for r in results
+        if "s3Location" in r.get("location", {})
+    })
+
+    prompt = (
+        "Answer the question using only the context below. "
+        "If the answer isn't in the context, say you don't know.\n\n"
+        f"Context:\n{context}\n\nQuestion: {question}"
     )
 
-    answer = resp["output"]["text"]
-
-    sources = sorted({
-        ref["location"]["s3Location"]["uri"]
-        for citation in resp.get("citations", [])
-        for ref in citation.get("retrievedReferences", [])
-        if "s3Location" in ref.get("location", {})
-    })
+    generated = anthropic_client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    answer = next(b.text for b in generated.content if b.type == "text")
 
     history_table.put_item(Item={
         "userId": user_id,
